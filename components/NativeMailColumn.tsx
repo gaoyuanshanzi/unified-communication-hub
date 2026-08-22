@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { MailSummary, MailDetail, DEFAULT_IMAP_PROVIDERS } from "@/lib/imap";
 import MailDetailView from "./MailDetailView";
+import ComposeMailView from "./ComposeMailView";
 
 interface NativeMailColumnProps {
   provider: "kakao" | "naver" | "gmail";
@@ -53,6 +54,8 @@ export default function NativeMailColumn({
   const [error, setError] = useState<string | null>(null);
   const [mails, setMails] = useState<MailSummary[]>([]);
   const [selectedMail, setSelectedMail] = useState<MailDetail | null>(null);
+  const [isComposing, setIsComposing] = useState(false);
+  const [sentSuccessToast, setSentSuccessToast] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // 저장된 계정이 있으면 자동 로드 시도
@@ -291,9 +294,24 @@ export default function NativeMailColumn({
         </div>
 
         {/* 우측 헤더 액션 */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           {isConnected && (
             <>
+              {/* 새 메일 쓰기 버튼 */}
+              <button
+                onClick={() => {
+                  setIsComposing(true);
+                  setSelectedMail(null);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-2xs"
+                title="새 메일 작성"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>메일 쓰기</span>
+              </button>
+
               <button
                 onClick={handleRefresh}
                 disabled={isLoading}
@@ -334,10 +352,36 @@ export default function NativeMailColumn({
         </div>
       </div>
 
-      {/* 본문 영역: 미연결(로그인 폼) vs 상세 뷰 vs 메일 목록 */}
+      {/* 발송 성공 토스트 */}
+      {sentSuccessToast && (
+        <div className="p-2.5 bg-emerald-50 border-b border-emerald-100 text-xs font-semibold text-emerald-700 flex items-center justify-between animate-fadeIn">
+          <span>✅ 메일이 성공적으로 발송되었습니다!</span>
+          <button onClick={() => setSentSuccessToast(false)} className="text-emerald-500 hover:text-emerald-700">✕</button>
+        </div>
+      )}
+
+      {/* 본문 영역: 작성 뷰 vs 상세 뷰 vs 미연결 폼 vs 메일 목록 */}
       <div className="relative flex-1 min-h-0 flex flex-col bg-slate-50/40">
-        {selectedMail ? (
-          // 1. 개별 메일 상세 뷰어 (회신 기능 포함)
+        {isComposing ? (
+          // 1. 새 메일 작성 뷰어
+          <ComposeMailView
+            provider={provider}
+            senderEmail={email}
+            onClose={() => setIsComposing(false)}
+            onSentSuccess={() => {
+              setSentSuccessToast(true);
+              setTimeout(() => setSentSuccessToast(false), 5000);
+              handleRefresh();
+            }}
+            accountId={activeAccountId}
+            directAuth={{
+              provider,
+              email,
+              password,
+            }}
+          />
+        ) : selectedMail ? (
+          // 2. 개별 메일 상세 뷰어 (회신 기능 포함)
           <MailDetailView
             mail={selectedMail}
             onBack={() => setSelectedMail(null)}
