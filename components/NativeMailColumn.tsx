@@ -337,8 +337,17 @@ export default function NativeMailColumn({
       {/* 본문 영역: 미연결(로그인 폼) vs 상세 뷰 vs 메일 목록 */}
       <div className="relative flex-1 min-h-0 flex flex-col bg-slate-50/40">
         {selectedMail ? (
-          // 1. 개별 메일 상세 뷰어
-          <MailDetailView mail={selectedMail} onBack={() => setSelectedMail(null)} />
+          // 1. 개별 메일 상세 뷰어 (회신 기능 포함)
+          <MailDetailView
+            mail={selectedMail}
+            onBack={() => setSelectedMail(null)}
+            accountId={activeAccountId}
+            directAuth={{
+              provider,
+              email,
+              password,
+            }}
+          />
         ) : !isConnected ? (
           // 2. 계정 인증 및 연결 설정 폼 (화이트 모드 카드)
           <div className="flex-1 overflow-y-auto p-5 flex flex-col justify-center">
