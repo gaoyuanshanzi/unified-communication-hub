@@ -35,13 +35,27 @@ npm install
 npx prisma db push
 ```
 
-### 4. 개발 서버 실행
+### 4. 웹 개발 서버 실행
 
 ```bash
 npm run dev
 ```
 
 브라우저에서 [http://localhost:3000](http://localhost:3000) 접속
+
+---
+
+## 🖥️ Electron 데스크톱 앱 실행 (3개 서비스 완전 임베딩)
+
+웹 브라우저의 보안 정책(X-Frame-Options/CORS) 없이 **하나의 프로그램 창 안에서 카카오톡 · 네이버 메일 · Gmail이 100% 동작하는 데스크톱 전용 모드**입니다.
+
+```bash
+# 1. 로컬 전체 개발 환경 (Next.js + Electron 동시 실행)
+npm run app:dev
+
+# 2. Vercel 배포 URL과 연동하여 데스크톱 앱 실행
+npm run app:prod
+```
 
 ---
 

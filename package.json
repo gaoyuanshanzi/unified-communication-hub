@@ -1,12 +1,16 @@
 {
-  "name": "antigravityhyunscommunications",
-  "version": "0.1.0",
+  "name": "unified-communication-hub",
+  "version": "1.0.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "app": "electron .",
+    "app:dev": "concurrently -k \"next dev\" \"wait-on tcp:3000 && electron .\"",
+    "app:prod": "cross-env ELECTRON_START_URL=https://hyunscommunications.vercel.app electron ."
   },
   "dependencies": {
     "@prisma/client": "6.4.1",
@@ -21,7 +25,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.1.0"
   }
 }
