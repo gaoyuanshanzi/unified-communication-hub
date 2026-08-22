@@ -1,0 +1,31 @@
+// Prisma 스키마 - Neon PostgreSQL 연결
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 관리자 세션 로그
+model AdminSession {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  loggedOutAt DateTime?
+  ipAddress   String?
+  userAgent   String?
+
+  @@map("admin_sessions")
+}
+
+// 접근 로그
+model AccessLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  path      String
+  ipAddress String?
+  method    String   @default("GET")
+
+  @@map("access_logs")
+}

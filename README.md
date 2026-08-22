@@ -1,36 +1,165 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Unified Communication Hub
 
-## Getting Started
+KakaoTalk · Naver Mail · Gmail 통합 커뮤니케이션 허브
 
-First, run the development server:
+Next.js (App Router) + TypeScript + Tailwind CSS + Neon PostgreSQL
+
+---
+
+## 🚀 로컬 개발 시작
+
+### 1. 환경 변수 설정
+
+```bash
+cp .env.local.example .env.local
+```
+
+`.env.local` 파일을 열고 실제 값으로 수정하세요:
+
+```
+DATABASE_URL=postgresql://neondb_owner:...@.../neondb?sslmode=require
+ADMIN_ID=admin
+ADMIN_PASSWORD=123jesus
+SESSION_SECRET=your_32_char_random_secret_here
+```
+
+### 2. 의존성 설치
+
+```bash
+npm install
+```
+
+### 3. Prisma DB 스키마 동기화
+
+```bash
+npx prisma db push
+```
+
+### 4. 개발 서버 실행
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+브라우저에서 [http://localhost:3000](http://localhost:3000) 접속
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 📁 프로젝트 구조
 
-## Learn More
+```
+├── app/
+│   ├── api/
+│   │   ├── auth/
+│   │   │   ├── login/route.ts      # 로그인 API
+│   │   │   └── logout/route.ts     # 로그아웃 API
+│   │   └── proxy/route.ts          # iframe 프록시 API
+│   ├── login/page.tsx              # 관리자 로그인 페이지
+│   ├── page.tsx                    # 메인 대시보드
+│   ├── layout.tsx
+│   └── globals.css
+├── components/
+│   └── ServiceFrame.tsx            # 서비스 iframe 컴포넌트
+├── lib/
+│   ├── session.ts                  # iron-session 설정
+│   └── prisma.ts                   # Prisma 클라이언트
+├── prisma/
+│   └── schema.prisma               # DB 스키마
+├── middleware.ts                   # 인증 미들웨어
+├── .env.local                      # 환경 변수 (git 제외)
+└── .env.local.example              # 환경 변수 예시 (git 포함)
+```
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🌐 GitHub + Vercel 배포 (gaoyuanshanzi@gmail.com)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 1단계: GitHub 저장소 생성
 
-## Deploy on Vercel
+GitHub(https://github.com)에 `gaoyuanshanzi@gmail.com` 계정으로 로그인 후,
+새 저장소를 생성합니다. 저장소명 예: `unified-communication-hub`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 2단계: Git 초기화 및 푸시
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Git 초기화 (이미 create-next-app이 초기화함)
+git status
+
+# 모든 파일 스테이징
+git add .
+
+# 첫 커밋
+git commit -m "feat: Unified Communication Hub 초기 구현"
+
+# GitHub 저장소 원격 추가 (YOUR_REPO_URL을 실제 URL로 교체)
+git remote add origin https://github.com/gaoyuanshanzi/unified-communication-hub.git
+
+# main 브랜치로 푸시
+git branch -M main
+git push -u origin main
+```
+
+### 3단계: Vercel 배포
+
+#### 방법 A: Vercel 웹 대시보드 (권장)
+
+1. [https://vercel.com](https://vercel.com) 에서 `gaoyuanshanzi@gmail.com`으로 로그인
+2. **"New Project"** 클릭
+3. GitHub 저장소 `unified-communication-hub` 선택 → **Import**
+4. **Environment Variables** 섹션에 아래 3개 변수 추가:
+
+   | 이름 | 값 |
+   |------|-----|
+   | `DATABASE_URL` | `postgresql://neondb_owner:npg_1qlyAzLi9gJS@ep-bitter-forest-axrre7za.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require` |
+   | `ADMIN_ID` | `admin` |
+   | `ADMIN_PASSWORD` | `123jesus` |
+   | `SESSION_SECRET` | `comm_hub_super_secret_key_2024_change_this_now` |
+
+5. **Deploy** 클릭
+
+#### 방법 B: Vercel CLI
+
+```bash
+# Vercel CLI 설치
+npm install -g vercel
+
+# 로그인 (gaoyuanshanzi@gmail.com)
+vercel login
+
+# 배포
+vercel
+
+# 프로덕션 배포
+vercel --prod
+```
+
+### 4단계: 배포 후 DB 마이그레이션
+
+Vercel 배포 후 Neon 콘솔(https://console.neon.tech)에서 스키마가 자동으로 적용되었는지 확인하거나,
+로컬에서 `DATABASE_URL`이 설정된 상태로 실행:
+
+```bash
+npx prisma db push
+```
+
+---
+
+## ⚠️ 보안 주의사항
+
+- `.env.local`은 절대 GitHub에 커밋하지 마세요
+- 프로덕션 배포 시 `SESSION_SECRET`을 반드시 강력한 랜덤 값으로 변경하세요
+- Vercel 환경 변수는 암호화되어 저장됩니다
+
+---
+
+## 🔧 기술 스택
+
+| 항목 | 기술 |
+|------|------|
+| 프레임워크 | Next.js 16 (App Router) |
+| 언어 | TypeScript |
+| 스타일링 | Tailwind CSS v4 |
+| 인증 | iron-session (HTTP-only 쿠키) |
+| ORM | Prisma |
+| 데이터베이스 | Neon PostgreSQL |
+| 배포 | Vercel |
