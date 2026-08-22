@@ -29,3 +29,18 @@ model AccessLog {
 
   @@map("access_logs")
 }
+
+// 저장된 메일 계정 설정 (IMAP)
+model MailAccount {
+  id        String   @id @default(cuid())
+  provider  String   // "kakao" | "naver" | "gmail"
+  email     String   @unique
+  password  String   // 암호화된 앱 비밀번호
+  host      String   // e.g. "imap.naver.com"
+  port      Int      @default(993)
+  secure    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("mail_accounts")
+}
