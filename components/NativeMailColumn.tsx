@@ -51,12 +51,20 @@ export default function NativeMailColumn({
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mails, setMails] = useState<MailSummary[]>([]);
   const [selectedMail, setSelectedMail] = useState<MailDetail | null>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [sentSuccessToast, setSentSuccessToast] = useState(false);
+  const [deleteSuccessToast, setDeleteSuccessToast] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // 메일함 선택 상태 (받은편지함: "INBOX", 보낸편지함: "SENT")
+  const [currentMailbox, setCurrentMailbox] = useState<"INBOX" | "SENT">("INBOX");
+
+  // 다중 메일 선택 상태
+  const [selectedUids, setSelectedUids] = useState<number[]>([]);
 
   // 저장된 계정이 있으면 자동 로드 시도
   useEffect(() => {
@@ -66,19 +74,20 @@ export default function NativeMailColumn({
       setPort(savedAccount.port);
       setActiveAccountId(savedAccount.id);
       setIsConnected(true);
-      fetchMailsWithAccountId(savedAccount.id);
+      fetchMailsWithAccountId(savedAccount.id, currentMailbox);
     }
   }, [savedAccount]);
 
   // 메일 목록 가져오기 (저장된 ID 기준)
-  const fetchMailsWithAccountId = async (accId: string) => {
+  const fetchMailsWithAccountId = async (accId: string, box: string = currentMailbox) => {
     setIsLoading(true);
     setError(null);
+    setSelectedUids([]);
     try {
       const res = await fetch("/api/mail/list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: accId }),
+        body: JSON.stringify({ accountId: accId, mailbox: box }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -98,10 +107,12 @@ export default function NativeMailColumn({
     targetEmail: string,
     targetPass: string,
     targetHost: string,
-    targetPort: number
+    targetPort: number,
+    box: string = currentMailbox
   ) => {
     setIsLoading(true);
     setError(null);
+    setSelectedUids([]);
     try {
       const res = await fetch("/api/mail/list", {
         method: "POST",
@@ -112,6 +123,7 @@ export default function NativeMailColumn({
           password: targetPass,
           host: targetHost,
           port: targetPort,
+          mailbox: box,
         }),
       });
       const data = await res.json();
@@ -125,6 +137,18 @@ export default function NativeMailColumn({
       setError("서버 통신 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // 메일함 탭 변경 (받은편지함 ↔ 보낸편지함)
+  const handleSwitchMailbox = (box: "INBOX" | "SENT") => {
+    setCurrentMailbox(box);
+    setSelectedMail(null);
+    setIsComposing(false);
+    if (activeAccountId) {
+      fetchMailsWithAccountId(activeAccountId, box);
+    } else if (email && password) {
+      fetchMailsDirect(email, password, host, port, box);
     }
   };
 
@@ -142,7 +166,6 @@ export default function NativeMailColumn({
 
     try {
       if (saveToDb) {
-        // 1. Neon DB에 안전하게 암호화 저장 후 조회
         const res = await fetch("/api/mail/accounts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -160,13 +183,12 @@ export default function NativeMailColumn({
           setActiveAccountId(data.account.id);
           setIsConnected(true);
           onAccountSaved?.();
-          await fetchMailsWithAccountId(data.account.id);
+          await fetchMailsWithAccountId(data.account.id, currentMailbox);
         } else {
           setError(data.error || "IMAP 연결 및 계정 저장 실패");
         }
       } else {
-        // 2. 일회성 세션 직접 연결
-        await fetchMailsDirect(email, password, host, port);
+        await fetchMailsDirect(email, password, host, port, currentMailbox);
       }
     } catch (err) {
       setError("연결 중 오류가 발생했습니다.");
@@ -180,7 +202,7 @@ export default function NativeMailColumn({
     setIsLoadingDetail(true);
     setError(null);
     try {
-      const payload: any = { uid };
+      const payload: any = { uid, mailbox: currentMailbox };
       if (activeAccountId) {
         payload.accountId = activeAccountId;
       } else {
@@ -200,7 +222,6 @@ export default function NativeMailColumn({
       const data = await res.json();
       if (res.ok && data.mail) {
         setSelectedMail(data.mail);
-        // 메일 읽음 상태 로컬 반영
         setMails((prev) =>
           prev.map((m) => (m.uid === uid ? { ...m, seen: true } : m))
         );
@@ -211,6 +232,67 @@ export default function NativeMailColumn({
       setError("상세 본문 로드 실패");
     } finally {
       setIsLoadingDetail(false);
+    }
+  };
+
+  // 선택된 메일 일괄 삭제
+  const handleDeleteSelected = async () => {
+    if (selectedUids.length === 0) return;
+    if (!confirm(`선택한 ${selectedUids.length}개의 메일을 삭제하시겠습니까?`)) return;
+
+    setIsDeleting(true);
+    try {
+      const payload: any = {
+        uids: selectedUids,
+        mailbox: currentMailbox,
+      };
+
+      if (activeAccountId) {
+        payload.accountId = activeAccountId;
+      } else {
+        payload.provider = provider;
+        payload.email = email;
+        payload.password = password;
+        payload.host = host;
+        payload.port = port;
+      }
+
+      const res = await fetch("/api/mail/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setMails((prev) => prev.filter((m) => !selectedUids.includes(m.uid)));
+        setSelectedUids([]);
+        setDeleteSuccessToast(true);
+        setTimeout(() => setDeleteSuccessToast(false), 4000);
+      } else {
+        const data = await res.json();
+        alert(data.error || "메일 삭제에 실패했습니다.");
+      }
+    } catch {
+      alert("삭제 요청 중 오류가 발생했습니다.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // 체크박스 토글 핸들러
+  const handleToggleSelectUid = (uid: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedUids((prev) =>
+      prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
+    );
+  };
+
+  // 전체 선택 / 해제 토글
+  const handleToggleSelectAll = () => {
+    if (selectedUids.length === filteredMails.length && filteredMails.length > 0) {
+      setSelectedUids([]);
+    } else {
+      setSelectedUids(filteredMails.map((m) => m.uid));
     }
   };
 
@@ -229,14 +311,15 @@ export default function NativeMailColumn({
     setPassword("");
     setMails([]);
     setSelectedMail(null);
+    setSelectedUids([]);
   };
 
   // 새로고침 핸들러
   const handleRefresh = () => {
     if (activeAccountId) {
-      fetchMailsWithAccountId(activeAccountId);
+      fetchMailsWithAccountId(activeAccountId, currentMailbox);
     } else if (email && password) {
-      fetchMailsDirect(email, password, host, port);
+      fetchMailsDirect(email, password, host, port, currentMailbox);
     }
   };
 
@@ -281,7 +364,7 @@ export default function NativeMailColumn({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-sm text-slate-800 truncate">{title}</h3>
-              {isConnected && unreadCount > 0 && (
+              {isConnected && currentMailbox === "INBOX" && unreadCount > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-600 text-white">
                   {unreadCount}
                 </span>
@@ -360,6 +443,14 @@ export default function NativeMailColumn({
         </div>
       )}
 
+      {/* 삭제 성공 토스트 */}
+      {deleteSuccessToast && (
+        <div className="p-2.5 bg-slate-100 border-b border-slate-200 text-xs font-semibold text-slate-700 flex items-center justify-between animate-fadeIn">
+          <span>🗑️ 선택한 메일이 삭제되었습니다.</span>
+          <button onClick={() => setDeleteSuccessToast(false)} className="text-slate-500 hover:text-slate-700">✕</button>
+        </div>
+      )}
+
       {/* 본문 영역: 작성 뷰 vs 상세 뷰 vs 미연결 폼 vs 메일 목록 */}
       <div className="relative flex-1 min-h-0 flex flex-col bg-slate-50/40">
         {isComposing ? (
@@ -381,11 +472,18 @@ export default function NativeMailColumn({
             }}
           />
         ) : selectedMail ? (
-          // 2. 개별 메일 상세 뷰어 (회신 기능 포함)
+          // 2. 개별 메일 상세 뷰어 (회신 및 삭제 기능 포함)
           <MailDetailView
             mail={selectedMail}
             onBack={() => setSelectedMail(null)}
+            onDeleted={() => {
+              setSelectedMail(null);
+              setDeleteSuccessToast(true);
+              setTimeout(() => setDeleteSuccessToast(false), 4000);
+              handleRefresh();
+            }}
             accountId={activeAccountId}
+            mailbox={currentMailbox}
             directAuth={{
               provider,
               email,
@@ -393,7 +491,7 @@ export default function NativeMailColumn({
             }}
           />
         ) : !isConnected ? (
-          // 2. 계정 인증 및 연결 설정 폼 (화이트 모드 카드)
+          // 3. 계정 인증 및 연결 설정 폼
           <div className="flex-1 overflow-y-auto p-5 flex flex-col justify-center">
             <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
               <div className="text-center space-y-1">
@@ -555,16 +653,46 @@ export default function NativeMailColumn({
             </div>
           </div>
         ) : (
-          // 3. 실시간 메일함 목록
+          // 4. 실시간 메일함 목록 (받은편지함 / 보낸편지함 선택 탭 & 다중 선택/삭제 포함)
           <div className="flex flex-col h-full">
-            {/* 검색 바 */}
-            <div className="p-2.5 border-b border-slate-100 bg-white">
+            {/* 메일함 탭 전환 (받은편지함 ↔ 보낸편지함) */}
+            <div className="flex items-center px-3 pt-2 bg-white border-b border-slate-100 gap-2">
+              <button
+                onClick={() => handleSwitchMailbox("INBOX")}
+                className={`flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold transition-all border-b-2 ${
+                  currentMailbox === "INBOX"
+                    ? "border-blue-600 text-blue-600 bg-blue-50/60"
+                    : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <span>📥 받은편지함</span>
+                {unreadCount > 0 && currentMailbox === "INBOX" && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white font-bold">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleSwitchMailbox("SENT")}
+                className={`flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold transition-all border-b-2 ${
+                  currentMailbox === "SENT"
+                    ? "border-blue-600 text-blue-600 bg-blue-50/60"
+                    : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <span>📤 보낸편지함</span>
+              </button>
+            </div>
+
+            {/* 검색 및 일괄 선택/삭제 툴바 */}
+            <div className="p-2.5 border-b border-slate-100 bg-white space-y-2">
               <div className="relative">
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="보낸 사람 또는 제목 검색..."
+                  placeholder="보낸/받는 사람 또는 제목 검색..."
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-slate-50/50
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                 />
@@ -585,6 +713,41 @@ export default function NativeMailColumn({
                   </button>
                 )}
               </div>
+
+              {/* 다중 선택 및 삭제 액션 바 */}
+              <div className="flex items-center justify-between px-1 text-xs">
+                <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 hover:text-slate-900 select-none">
+                  <input
+                    type="checkbox"
+                    checked={
+                      filteredMails.length > 0 && selectedUids.length === filteredMails.length
+                    }
+                    onChange={handleToggleSelectAll}
+                    className="w-3.5 h-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500"
+                  />
+                  <span className="text-[11px] font-medium">
+                    전체 선택 ({selectedUids.length}/{filteredMails.length})
+                  </span>
+                </label>
+
+                {selectedUids.length > 0 && (
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={isDeleting}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-[11px] font-bold transition-all disabled:opacity-50"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                    <span>{isDeleting ? "삭제 중..." : `선택 삭제 (${selectedUids.length})`}</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* 메일 항목 리스트 */}
@@ -592,39 +755,62 @@ export default function NativeMailColumn({
               {isLoading && mails.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-400 space-y-2">
                   <div className="inline-block animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full" />
-                  <p>메일 목록을 동기화하고 있습니다...</p>
+                  <p>{currentMailbox === "INBOX" ? "받은편지함" : "보낸편지함"}을 동기화하고 있습니다...</p>
                 </div>
               ) : filteredMails.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-400 space-y-1">
-                  <p className="font-semibold text-slate-600">수신된 메일이 없습니다</p>
+                  <p className="font-semibold text-slate-600">
+                    {currentMailbox === "INBOX" ? "받은 메일이 없습니다" : "보낸 메일이 없습니다"}
+                  </p>
                   <p className="text-[11px]">검색어를 확인하거나 새로고침을 눌러보세요.</p>
                 </div>
               ) : (
                 filteredMails.map((mail) => (
-                  <button
+                  <div
                     key={mail.uid}
                     onClick={() => handleSelectMail(mail.uid)}
-                    className={`w-full text-left p-3 hover:bg-slate-50 transition-colors flex items-start gap-2.5 group
-                                ${!mail.seen ? "bg-blue-50/30 font-medium" : ""}`}
+                    className={`w-full text-left p-3 hover:bg-slate-50 transition-colors flex items-start gap-2.5 cursor-pointer group
+                                ${!mail.seen && currentMailbox === "INBOX" ? "bg-blue-50/30 font-medium" : ""}`}
                   >
-                    {/* 읽지 않음 파란 점 */}
-                    <div className="pt-1 flex-shrink-0">
-                      <span
-                        className={`block w-2 h-2 rounded-full ${
-                          !mail.seen ? "bg-blue-600" : "bg-transparent"
-                        }`}
+                    {/* 선택 체크박스 */}
+                    <div
+                      className="pt-0.5 flex-shrink-0"
+                      onClick={(e) => handleToggleSelectUid(mail.uid, e)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUids.includes(mail.uid)}
+                        onChange={() => {}}
+                        className="w-3.5 h-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
                       />
                     </div>
 
+                    {/* 읽지 않음 파란 점 (받은편지함 전용) */}
+                    {currentMailbox === "INBOX" && (
+                      <div className="pt-1 flex-shrink-0">
+                        <span
+                          className={`block w-2 h-2 rounded-full ${
+                            !mail.seen ? "bg-blue-600" : "bg-transparent"
+                          }`}
+                        />
+                      </div>
+                    )}
+
                     <div className="flex-1 min-w-0">
-                      {/* 발신자 + 날짜 */}
+                      {/* 발신자/수신자 + 날짜 */}
                       <div className="flex items-center justify-between gap-2 mb-0.5">
                         <span
                           className={`text-xs truncate ${
-                            !mail.seen ? "font-bold text-slate-900" : "text-slate-700"
+                            !mail.seen && currentMailbox === "INBOX"
+                              ? "font-bold text-slate-900"
+                              : "text-slate-700"
                           }`}
                         >
-                          {mail.from.name || mail.from.address}
+                          {currentMailbox === "SENT"
+                            ? mail.to && mail.to.length > 0
+                              ? `받는사람: ${mail.to.map((t) => t.name || t.address).join(", ")}`
+                              : "받는사람 없음"
+                            : mail.from.name || mail.from.address}
                         </span>
                         <span className="text-[10px] text-slate-400 whitespace-nowrap flex-shrink-0">
                           {formatShortDate(mail.date)}
@@ -634,13 +820,15 @@ export default function NativeMailColumn({
                       {/* 제목 */}
                       <p
                         className={`text-xs line-clamp-1 leading-snug ${
-                          !mail.seen ? "font-semibold text-slate-800" : "text-slate-600"
+                          !mail.seen && currentMailbox === "INBOX"
+                            ? "font-semibold text-slate-800"
+                            : "text-slate-600"
                         }`}
                       >
                         {mail.subject || "(제목 없음)"}
                       </p>
                     </div>
-                  </button>
+                  </div>
                 ))
               )}
             </div>
@@ -650,7 +838,11 @@ export default function NativeMailColumn({
 
       {/* 하단 상태 표시줄 */}
       <div className="px-3 py-1.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-[11px] text-slate-400">
-        <span>{isConnected ? `총 ${mails.length}통의 메일` : "연결 대기 중"}</span>
+        <span>
+          {isConnected
+            ? `${currentMailbox === "INBOX" ? "받은편지함" : "보낸편지함"} (총 ${mails.length}통)`
+            : "연결 대기 중"}
+        </span>
         <span className="font-mono text-slate-500">{defaultHost}</span>
       </div>
     </div>

@@ -7,8 +7,10 @@ import { MailDetail } from "@/lib/imap";
 interface MailDetailViewProps {
   mail: MailDetail;
   onBack: () => void;
+  onDeleted?: () => void;
   isLoading?: boolean;
   accountId?: string | null;
+  mailbox?: string;
   directAuth?: {
     provider: string;
     email: string;
@@ -19,8 +21,10 @@ interface MailDetailViewProps {
 export default function MailDetailView({
   mail,
   onBack,
+  onDeleted,
   isLoading,
   accountId,
+  mailbox = "INBOX",
   directAuth,
 }: MailDetailViewProps) {
   // 회신 작성 폼 상태
@@ -33,6 +37,9 @@ export default function MailDetailView({
   const [isSending, setIsSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  // 삭제 진행 상태
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // HTML 본문 안전 살균 처리
   const sanitizedHtml = useMemo(() => {
@@ -67,7 +74,45 @@ export default function MailDetailView({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // 회신 메일 전송 핸들러
+  // 단일 메일 삭제 핸들러
+  const handleDelete = async () => {
+    if (!confirm("이 메일을 삭제하시겠습니까?")) return;
+
+    setIsDeleting(true);
+    try {
+      const payload: any = {
+        uids: [mail.uid],
+        mailbox,
+      };
+
+      if (accountId) {
+        payload.accountId = accountId;
+      } else if (directAuth) {
+        payload.provider = directAuth.provider;
+        payload.email = directAuth.email;
+        payload.password = directAuth.password;
+      }
+
+      const res = await fetch("/api/mail/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        onDeleted?.();
+      } else {
+        const data = await res.json();
+        alert(data.error || "메일 삭제에 실패했습니다.");
+      }
+    } catch {
+      alert("서버 통신 중 오류가 발생했습니다.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // 회신 메일 전송 핸들러 (세미콜론 다중 수신자 지원)
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     setSendError(null);
@@ -140,25 +185,45 @@ export default function MailDetailView({
           목록으로
         </button>
 
-        {/* 상단 빠른 회신 버튼 */}
-        <button
-          onClick={() => setIsReplying(!isReplying)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shadow-2xs ${
-            isReplying
-              ? "bg-slate-200 text-slate-700"
-              : "bg-blue-600 text-white hover:bg-blue-700 shadow-xs"
-          }`}
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 10h10a5 5 0 015 5v2m0 0l-4-4m4 4l4-4M3 10l6-6m-6 6l6 6"
-            />
-          </svg>
-          {isReplying ? "회신 닫기" : "회신 (답장)"}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* 회신 버튼 */}
+          <button
+            onClick={() => setIsReplying(!isReplying)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shadow-2xs ${
+              isReplying
+                ? "bg-slate-200 text-slate-700"
+                : "bg-blue-600 text-white hover:bg-blue-700 shadow-xs"
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 10h10a5 5 0 015 5v2m0 0l-4-4m4 4l4-4M3 10l6-6m-6 6l6 6"
+              />
+            </svg>
+            {isReplying ? "회신 닫기" : "회신 (답장)"}
+          </button>
+
+          {/* 삭제 버튼 */}
+          <button
+            onClick={handleDelete}
+            disabled={isDeleting}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-red-600 hover:bg-red-50 hover:border-red-200 border border-transparent transition-all disabled:opacity-50"
+            title="메일 삭제"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+            <span>{isDeleting ? "삭제 중..." : "삭제"}</span>
+          </button>
+        </div>
       </div>
 
       {/* 회신 성공/실패 토스트 */}
@@ -175,7 +240,7 @@ export default function MailDetailView({
             <span>⚠️</span>
             <span>{sendError}</span>
           </div>
-          <button onClick={() => setSendError(null)} className="text-red-400 hover:text-red-600">
+          <button onClick={() => setSendError(null)} className="text-red-400 hover:text-red-600 font-bold">
             ✕
           </button>
         </div>
@@ -220,7 +285,7 @@ export default function MailDetailView({
           )}
         </div>
 
-        {/* 회신 작성 폼 (상단 열림 모드) */}
+        {/* 회신 작성 폼 */}
         {isReplying && (
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/30 shadow-xs space-y-3 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-blue-100 pb-2">
@@ -237,7 +302,7 @@ export default function MailDetailView({
               </h3>
               <button
                 onClick={() => setIsReplying(false)}
-                className="text-xs text-slate-400 hover:text-slate-600"
+                className="text-xs text-slate-400 hover:text-slate-600 font-bold"
               >
                 닫기 ✕
               </button>
@@ -246,12 +311,13 @@ export default function MailDetailView({
             <form onSubmit={handleSendReply} className="space-y-2.5">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">
-                  받는 사람
+                  받는 사람 <span className="text-[10px] text-slate-400 font-normal">(다수 입력 시 ; 로 구분)</span>
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   value={replyTo}
                   onChange={(e) => setReplyTo(e.target.value)}
+                  placeholder="user1@example.com; user2@example.com"
                   required
                   className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
@@ -376,25 +442,43 @@ export default function MailDetailView({
           )}
         </div>
 
-        {/* 본문 하단 답장 액션 바 */}
+        {/* 본문 하단 답장 및 삭제 액션 바 */}
         <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
-          <button
-            onClick={() => {
-              setIsReplying(true);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition-all shadow-2xs"
-          >
-            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 10h10a5 5 0 015 5v2m0 0l-4-4m4 4l4-4M3 10l6-6m-6 6l6 6"
-              />
-            </svg>
-            이 메일에 회신(답장)하기
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setIsReplying(true);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition-all shadow-2xs"
+            >
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 10h10a5 5 0 015 5v2m0 0l-4-4m4 4l4-4M3 10l6-6m-6 6l6 6"
+                />
+              </svg>
+              회신(답장)하기
+            </button>
+
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold transition-all disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
+              삭제
+            </button>
+          </div>
 
           <button
             onClick={onBack}

@@ -140,22 +140,24 @@ export default function ComposeMailView({
         {/* 받는 사람 */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-semibold text-slate-700">받는 사람</label>
+            <label className="block text-xs font-semibold text-slate-700">
+              받는 사람 <span className="text-[10px] text-slate-400 font-normal">(다수 입력 시 ; 로 구분)</span>
+            </label>
             {!showCc && (
               <button
                 type="button"
                 onClick={() => setShowCc(true)}
-                className="text-[11px] text-blue-600 hover:underline"
+                className="text-[11px] text-blue-600 hover:underline font-medium"
               >
                 + 참조(CC) 추가
               </button>
             )}
           </div>
           <input
-            type="email"
+            type="text"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="recipient@example.com"
+            placeholder="user1@example.com; user2@example.com"
             required
             className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
@@ -166,23 +168,25 @@ export default function ComposeMailView({
         {showCc && (
           <div className="animate-fadeIn">
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-slate-700">참조 (CC)</label>
+              <label className="block text-xs font-semibold text-slate-700">
+                참조 (CC) <span className="text-[10px] text-slate-400 font-normal">(다수 입력 시 ; 로 구분)</span>
+              </label>
               <button
                 type="button"
                 onClick={() => {
                   setShowCc(false);
                   setCc("");
                 }}
-                className="text-[11px] text-slate-400 hover:text-slate-600"
+                className="text-[11px] text-slate-400 hover:text-slate-600 font-medium"
               >
                 참조 숨기기 ✕
               </button>
             </div>
             <input
-              type="email"
+              type="text"
               value={cc}
               onChange={(e) => setCc(e.target.value)}
-              placeholder="cc@example.com"
+              placeholder="cc1@example.com; cc2@example.com"
               className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50
                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
             />

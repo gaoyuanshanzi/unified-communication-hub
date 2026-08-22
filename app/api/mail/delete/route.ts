@@ -3,7 +3,7 @@ import { getIronSession } from "iron-session";
 import { sessionOptions, SessionData } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { decryptPassword } from "@/lib/crypto";
-import { fetchMailList, DEFAULT_IMAP_PROVIDERS, ImapConfig } from "@/lib/imap";
+import { deleteMails, DEFAULT_IMAP_PROVIDERS, ImapConfig } from "@/lib/imap";
 
 export async function POST(request: NextRequest) {
   const response = new NextResponse();
@@ -15,12 +15,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { accountId, provider, email, password, host, port, secure, limit, mailbox = "INBOX" } = body;
+    const { accountId, provider, email, password, host, port, secure, uids, mailbox = "INBOX" } = body;
+
+    if (!uids || !Array.isArray(uids) || uids.length === 0) {
+      return NextResponse.json({ error: "삭제할 메일 UID 목록이 필요합니다." }, { status: 400 });
+    }
 
     let imapConfig: ImapConfig;
 
     if (accountId) {
-      // DB에서 저장된 계정 정보 조회
       const account = await prisma.mailAccount.findUnique({
         where: { id: accountId },
       });
@@ -44,7 +47,6 @@ export async function POST(request: NextRequest) {
         },
       };
     } else if (email && password) {
-      // 직접 전달받은 인증 정보 사용
       const defaultProvider = provider ? DEFAULT_IMAP_PROVIDERS[provider] : undefined;
       imapConfig = {
         host: host || defaultProvider?.host || "imap.gmail.com",
@@ -56,22 +58,21 @@ export async function POST(request: NextRequest) {
         },
       };
     } else {
-      return NextResponse.json({ error: "계정 정보가 제공되지 않았습니다." }, { status: 400 });
+      return NextResponse.json({ error: "계정 정보가 필요합니다." }, { status: 400 });
     }
 
-    // 메일 목록 가져오기 (지정된 mailbox)
-    const mails = await fetchMailList(imapConfig, mailbox, limit ? Number(limit) : 30);
+    // 메일 삭제 실행
+    await deleteMails(imapConfig, uids.map(Number), mailbox);
 
     return NextResponse.json({
       success: true,
-      count: mails.length,
-      mails,
+      deletedCount: uids.length,
     });
   } catch (error: any) {
-    console.error("메일 목록 가져오기 실패:", error);
+    console.error("메일 삭제 오류:", error);
     return NextResponse.json(
       {
-        error: error.message || "메일 서버와 통신하는 중 오류가 발생했습니다.",
+        error: error.message || "메일 삭제 중 오류가 발생했습니다.",
       },
       { status: 500 }
     );

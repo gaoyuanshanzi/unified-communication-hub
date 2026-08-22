@@ -11,6 +11,14 @@ export interface ImapConfig {
   };
 }
 
+export interface MailboxItem {
+  path: string;
+  name: string;
+  specialUse?: string;
+  isSent?: boolean;
+  isInbox?: boolean;
+}
+
 export interface MailSummary {
   uid: number;
   seq: number;
@@ -95,7 +103,7 @@ export function createImapClient(config: ImapConfig): ImapFlow {
       user: config.auth.user,
       pass: config.auth.pass,
     },
-    logger: false, // 콘솔 로그 억제
+    logger: false,
     clientInfo: {
       name: "Unified Communication Hub",
       version: "1.0.0",
@@ -119,7 +127,53 @@ export async function testImapConnection(config: ImapConfig): Promise<boolean> {
 }
 
 /**
- * 편지함의 최신 메일 목록 가져오기
+ * 사용 가능한 메일함(받은편지함, 보낸편지함 등) 목록 조회
+ */
+export async function listMailboxes(config: ImapConfig): Promise<MailboxItem[]> {
+  const client = createImapClient(config);
+  const result: MailboxItem[] = [];
+
+  try {
+    await client.connect();
+    const mailboxes = await client.list();
+
+    for (const mb of mailboxes) {
+      const isSent =
+        mb.specialUse === "\\Sent" ||
+        mb.path.toLowerCase().includes("sent") ||
+        mb.name.toLowerCase().includes("sent") ||
+        mb.name.includes("보낸");
+
+      const isInbox =
+        mb.specialUse === "\\Inbox" ||
+        mb.path.toUpperCase() === "INBOX" ||
+        mb.name.toUpperCase() === "INBOX" ||
+        mb.name.includes("받은");
+
+      result.push({
+        path: mb.path,
+        name: mb.name,
+        specialUse: mb.specialUse,
+        isSent,
+        isInbox,
+      });
+    }
+
+    await client.logout();
+  } catch (error) {
+    console.error(`IMAP 메일함 목록 조회 오류:`, error);
+    // 기본 폴더 목록 반환
+    return [
+      { path: "INBOX", name: "받은편지함", isInbox: true },
+      { path: "Sent", name: "보낸편지함", isSent: true },
+    ];
+  }
+
+  return result;
+}
+
+/**
+ * 메일함의 최신 메일 목록 가져오기 (받은편지함/보낸편지함 등 지원)
  */
 export async function fetchMailList(
   config: ImapConfig,
@@ -131,17 +185,35 @@ export async function fetchMailList(
 
   try {
     await client.connect();
-    const lock = await client.getMailboxLock(mailbox);
+
+    // 메일함 경로 보정 (대소문자 및 특수 폴더명 매핑)
+    let targetMailbox = mailbox;
+    if (mailbox.toUpperCase() === "SENT") {
+      // 보낸편지함 경로 자동 탐색
+      const mailboxes = await client.list();
+      const sentBox = mailboxes.find(
+        (mb) =>
+          mb.specialUse === "\\Sent" ||
+          mb.path.toLowerCase().includes("sent") ||
+          mb.name.toLowerCase().includes("sent") ||
+          mb.name.includes("보낸")
+      );
+      if (sentBox) {
+        targetMailbox = sentBox.path;
+      }
+    }
+
+    const lock = await client.getMailboxLock(targetMailbox);
 
     try {
-      const status = await client.status(mailbox, { messages: true });
+      const status = await client.status(targetMailbox, { messages: true });
       const totalMessages = status.messages || 0;
 
       if (totalMessages === 0) {
         return [];
       }
 
-      // 최신 메일 위주로 범위 산출 (예: 80~100)
+      // 최신 메일 위주로 범위 산출
       const startSeq = Math.max(1, totalMessages - limit + 1);
       const range = `${startSeq}:*`;
 
@@ -183,7 +255,7 @@ export async function fetchMailList(
 
     await client.logout();
   } catch (error) {
-    console.error(`IMAP 메일 목록 조회 오류 (${config.host}):`, error);
+    console.error(`IMAP 메일 목록 조회 오류 (${config.host}, ${mailbox}):`, error);
     throw error;
   }
 
@@ -203,12 +275,26 @@ export async function fetchMailDetail(
 
   try {
     await client.connect();
-    const lock = await client.getMailboxLock(mailbox);
 
+    let targetMailbox = mailbox;
+    if (mailbox.toUpperCase() === "SENT") {
+      const mailboxes = await client.list();
+      const sentBox = mailboxes.find(
+        (mb) =>
+          mb.specialUse === "\\Sent" ||
+          mb.path.toLowerCase().includes("sent") ||
+          mb.name.toLowerCase().includes("sent") ||
+          mb.name.includes("보낸")
+      );
+      if (sentBox) {
+        targetMailbox = sentBox.path;
+      }
+    }
+
+    const lock = await client.getMailboxLock(targetMailbox);
     let parsed: ParsedMail | null = null;
 
     try {
-      // RFC822 원본 다운로드
       const downloaded = await client.download(String(uid), undefined, { uid: true });
       if (downloaded && downloaded.content) {
         parsed = await simpleParser(downloaded.content);
@@ -263,6 +349,55 @@ export async function fetchMailDetail(
     };
   } catch (error) {
     console.error(`IMAP 메일 상세 조회 오류 (UID: ${uid}):`, error);
+    throw error;
+  }
+}
+
+/**
+ * 메일 삭제 (단일 또는 다중 UID 삭제)
+ */
+export async function deleteMails(
+  config: ImapConfig,
+  uids: number[],
+  mailbox: string = "INBOX"
+): Promise<boolean> {
+  if (!uids || uids.length === 0) return true;
+
+  const client = createImapClient(config);
+
+  try {
+    await client.connect();
+
+    let targetMailbox = mailbox;
+    if (mailbox.toUpperCase() === "SENT") {
+      const mailboxes = await client.list();
+      const sentBox = mailboxes.find(
+        (mb) =>
+          mb.specialUse === "\\Sent" ||
+          mb.path.toLowerCase().includes("sent") ||
+          mb.name.toLowerCase().includes("sent") ||
+          mb.name.includes("보낸")
+      );
+      if (sentBox) {
+        targetMailbox = sentBox.path;
+      }
+    }
+
+    const lock = await client.getMailboxLock(targetMailbox);
+
+    try {
+      const range = uids.join(",");
+      // Deleted 플래그 추가 후 영구 삭제(Expunge) 또는 messageDelete
+      await client.messageFlagsAdd(range, ["\\Deleted"], { uid: true });
+      await client.messageDelete(range, { uid: true });
+    } finally {
+      lock.release();
+    }
+
+    await client.logout();
+    return true;
+  } catch (error) {
+    console.error(`IMAP 메일 삭제 오류 (UIDs: ${uids.join(",")}):`, error);
     throw error;
   }
 }

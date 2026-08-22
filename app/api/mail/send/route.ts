@@ -80,11 +80,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "발신 계정 정보가 필요합니다." }, { status: 400 });
     }
 
+    // 세미콜론(;) 및 쉼표(,) 다중 수신자 지원 정규화
+    const normalizeAddresses = (raw?: string) => {
+      if (!raw) return undefined;
+      return raw
+        .split(/[;,]+/)
+        .map((addr) => addr.trim())
+        .filter(Boolean)
+        .join(", ");
+    };
+
+    const formattedTo = normalizeAddresses(to) || to;
+    const formattedCc = normalizeAddresses(cc);
+
     // SMTP 발송 실행
     const info = await sendMail(smtpConfig, {
       from: senderEmail,
-      to,
-      cc,
+      to: formattedTo,
+      cc: formattedCc,
       subject,
       text,
       html,
