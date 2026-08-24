@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { uid, accountId, provider, email, password, host, port, secure } = body;
+    const { uid, accountId, provider, email, password, host, port, secure, mailbox = "INBOX" } = body;
 
     if (!uid) {
       return NextResponse.json({ error: "메일 UID가 필요합니다." }, { status: 400 });
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "계정 정보가 필요합니다." }, { status: 400 });
     }
 
-    const mailDetail = await fetchMailDetail(imapConfig, Number(uid), "INBOX");
+    const mailDetail = await fetchMailDetail(imapConfig, Number(uid), mailbox);
 
     if (!mailDetail) {
       return NextResponse.json({ error: "메일 본문을 가져오지 못했습니다." }, { status: 404 });
