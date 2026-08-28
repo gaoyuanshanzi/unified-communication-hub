@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 
 interface ComposeMailViewProps {
   provider: string;
@@ -14,6 +14,8 @@ interface ComposeMailViewProps {
     password?: string;
   };
 }
+
+const MAX_TOTAL_ATTACHMENT_SIZE = 4.5 * 1024 * 1024; // 4.5 MB (Vercel Serverless Payload Limit)
 
 export default function ComposeMailView({
   provider,
@@ -35,16 +37,33 @@ export default function ComposeMailView({
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const totalAttachmentSize = useMemo(() => {
+    return attachedFiles.reduce((acc, file) => acc + file.size, 0);
+  }, [attachedFiles]);
+
+  const isOverSizeLimit = totalAttachmentSize > MAX_TOTAL_ATTACHMENT_SIZE;
+
   const handleAttachFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
-    // 동일 파일 재선택 가능하도록 초기화
+    setError(null);
+
+    const newFiles = Array.from(files);
+    const newTotal = totalAttachmentSize + newFiles.reduce((acc, f) => acc + f.size, 0);
+
+    if (newTotal > MAX_TOTAL_ATTACHMENT_SIZE) {
+      setError(
+        `⚠️ 첨부파일 총 용량이 4.5MB를 초과할 수 없습니다. (현재: ${formatFileSize(newTotal)})`
+      );
+    }
+
+    setAttachedFiles((prev) => [...prev, ...newFiles]);
     e.target.value = "";
   };
 
   const handleRemoveFile = (idx: number) => {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
+    setError(null);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -67,6 +86,10 @@ export default function ComposeMailView({
     }
     if (!body.trim()) {
       setError("메일 본문 내용을 입력해 주세요.");
+      return;
+    }
+    if (isOverSizeLimit) {
+      setError("⚠️ 첨부파일 총 용량이 4.5MB를 초과하여 전송할 수 없습니다. 파일을 줄여주세요.");
       return;
     }
 
@@ -100,7 +123,7 @@ export default function ComposeMailView({
           body: formData,
         });
       } else {
-        // 첨부파일 없으면 기존 JSON 방식
+        // 첨부파일 없으면 JSON 방식
         const payload: any = {
           to: to.trim(),
           subject: subject.trim(),
@@ -124,16 +147,27 @@ export default function ComposeMailView({
         });
       }
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        if (res.status === 413) {
+          data = { error: "첨부파일 용량이 너무 큽니다. (서버 전송 한도 4.5MB 초과)" };
+        } else if (res.status === 504) {
+          data = { error: "메일 전송 시간 초과 (대용량 파일 전송 타임아웃). 잠시 후 다시 시도해 주세요." };
+        } else {
+          data = { error: `서버 통신 오류 (HTTP ${res.status})` };
+        }
+      }
 
-      if (res.ok) {
+      if (res.ok && data.success) {
         onSentSuccess?.();
         onClose();
       } else {
         setError(data.error || "메일 전송에 실패했습니다.");
       }
     } catch (err: any) {
-      setError("서버 전송 중 오류가 발생했습니다.");
+      setError(err?.message || "서버 전송 중 네트워크 오류가 발생했습니다.");
     } finally {
       setIsSending(false);
     }
@@ -271,7 +305,6 @@ export default function ComposeMailView({
 
         {/* 첨부파일 영역 */}
         <div>
-          {/* 숨겨진 파일 input */}
           <input
             ref={fileInputRef}
             type="file"
@@ -280,26 +313,34 @@ export default function ComposeMailView({
             className="hidden"
           />
 
-          {/* 첨부 버튼 */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 text-[11px] font-semibold transition-all w-full justify-center"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-              />
-            </svg>
-            📎 파일 첨부하기 (여러 파일 선택 가능)
-          </button>
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex-1 flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 text-[11px] font-semibold transition-all justify-center"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                />
+              </svg>
+              📎 파일 첨부하기 (여러 파일 선택 가능)
+            </button>
+          </div>
 
           {/* 첨부된 파일 목록 */}
           {attachedFiles.length > 0 && (
             <div className="mt-2 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] px-1 text-slate-500 font-medium">
+                <span>첨부파일 ({attachedFiles.length}개)</span>
+                <span className={isOverSizeLimit ? "text-red-600 font-bold" : "text-slate-500"}>
+                  총 {formatFileSize(totalAttachmentSize)} / 최대 4.5 MB
+                </span>
+              </div>
+
               {attachedFiles.map((file, idx) => (
                 <div
                   key={idx}
@@ -329,41 +370,36 @@ export default function ComposeMailView({
         </div>
 
         {/* 하단 버튼 바 */}
-        <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
-          <span className="text-[11px] text-slate-400">
-            {attachedFiles.length > 0 ? `📎 ${attachedFiles.length}개 첨부` : ""}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={isSending}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
-            >
-              {isSending ? (
-                <>
-                  <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  전송 중...
-                </>
-              ) : (
-                <>
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
-                  메일 보내기
-                </>
-              )}
-            </button>
-          </div>
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all"
+          >
+            취소
+          </button>
+          <button
+            type="submit"
+            disabled={isSending || isOverSizeLimit}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+          >
+            {isSending ? (
+              <>
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                전송 중...
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                메일 보내기
+              </>
+            )}
+          </button>
         </div>
       </form>
     </div>

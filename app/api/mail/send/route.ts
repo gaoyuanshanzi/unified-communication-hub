@@ -5,6 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { decryptPassword } from "@/lib/crypto";
 import { sendMail, DEFAULT_SMTP_PROVIDERS, SmtpConfig, MailAttachment } from "@/lib/smtp";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const response = new NextResponse();
   const session = await getIronSession<SessionData>(request, response, sessionOptions);

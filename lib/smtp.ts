@@ -57,6 +57,13 @@ export async function sendMail(
       user: config.auth.user,
       pass: config.auth.pass,
     },
+    // 대용량 첨부파일 발송 시 타임아웃 방지
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
+    tls: {
+      rejectUnauthorized: false,
+    },
   });
 
   const fromAddress = mailOptions.from || config.auth.user;
