@@ -10,6 +10,12 @@ export interface SmtpConfig {
   };
 }
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string;
+}
+
 export const DEFAULT_SMTP_PROVIDERS: Record<
   string,
   { host: string; port: number; secure: boolean }
@@ -40,6 +46,7 @@ export async function sendMail(
     subject: string;
     text?: string;
     html?: string;
+    attachments?: MailAttachment[];
   }
 ) {
   const transporter = nodemailer.createTransport({
@@ -61,6 +68,11 @@ export async function sendMail(
     subject: mailOptions.subject,
     text: mailOptions.text,
     html: mailOptions.html,
+    attachments: mailOptions.attachments?.map((att) => ({
+      filename: att.filename,
+      content: att.content,
+      contentType: att.contentType,
+    })),
   });
 
   return info;

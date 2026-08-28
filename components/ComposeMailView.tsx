@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 
 interface ComposeMailViewProps {
   provider: string;
@@ -31,6 +31,28 @@ export default function ComposeMailView({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 첨부파일 상태
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAttachFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
+    // 동일 파일 재선택 가능하도록 초기화
+    e.target.value = "";
+  };
+
+  const handleRemoveFile = (idx: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -51,29 +73,56 @@ export default function ComposeMailView({
     setIsSending(true);
 
     try {
-      const payload: any = {
-        to: to.trim(),
-        subject: subject.trim(),
-        text: body,
-      };
+      let res: Response;
 
-      if (cc.trim()) {
-        payload.cc = cc.trim();
+      if (attachedFiles.length > 0) {
+        // 첨부파일이 있으면 multipart/form-data 전송
+        const formData = new FormData();
+        formData.append("to", to.trim());
+        formData.append("subject", subject.trim());
+        formData.append("text", body);
+        if (cc.trim()) formData.append("cc", cc.trim());
+
+        if (accountId) {
+          formData.append("accountId", accountId);
+        } else if (directAuth) {
+          formData.append("provider", directAuth.provider);
+          formData.append("email", directAuth.email);
+          if (directAuth.password) formData.append("password", directAuth.password);
+        }
+
+        for (const file of attachedFiles) {
+          formData.append("attachments", file);
+        }
+
+        res = await fetch("/api/mail/send", {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        // 첨부파일 없으면 기존 JSON 방식
+        const payload: any = {
+          to: to.trim(),
+          subject: subject.trim(),
+          text: body,
+        };
+
+        if (cc.trim()) payload.cc = cc.trim();
+
+        if (accountId) {
+          payload.accountId = accountId;
+        } else if (directAuth) {
+          payload.provider = directAuth.provider;
+          payload.email = directAuth.email;
+          payload.password = directAuth.password;
+        }
+
+        res = await fetch("/api/mail/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
       }
-
-      if (accountId) {
-        payload.accountId = accountId;
-      } else if (directAuth) {
-        payload.provider = directAuth.provider;
-        payload.email = directAuth.email;
-        payload.password = directAuth.password;
-      }
-
-      const res = await fetch("/api/mail/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
 
       const data = await res.json();
 
@@ -208,7 +257,7 @@ export default function ComposeMailView({
         </div>
 
         {/* 본문 내용 */}
-        <div className="flex-1 min-h-[160px] flex flex-col">
+        <div className="flex-1 min-h-[120px] flex flex-col">
           <label className="block text-xs font-semibold text-slate-700 mb-1">내용</label>
           <textarea
             value={body}
@@ -220,37 +269,101 @@ export default function ComposeMailView({
           />
         </div>
 
-        {/* 하단 버튼 바 */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+        {/* 첨부파일 영역 */}
+        <div>
+          {/* 숨겨진 파일 input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleAttachFiles}
+            className="hidden"
+          />
+
+          {/* 첨부 버튼 */}
           <button
             type="button"
-            onClick={onClose}
-            className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 text-[11px] font-semibold transition-all w-full justify-center"
           >
-            취소
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+              />
+            </svg>
+            📎 파일 첨부하기 (여러 파일 선택 가능)
           </button>
-          <button
-            type="submit"
-            disabled={isSending}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
-          >
-            {isSending ? (
-              <>
-                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                전송 중...
-              </>
-            ) : (
-              <>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-                메일 보내기
-              </>
-            )}
-          </button>
+
+          {/* 첨부된 파일 목록 */}
+          {attachedFiles.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {attachedFiles.map((file, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between px-2.5 py-1.5 bg-blue-50/40 rounded-lg border border-blue-100 text-xs"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="truncate text-slate-700 font-medium">{file.name}</span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap flex-shrink-0">
+                      {formatFileSize(file.size)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFile(idx)}
+                    className="ml-2 p-0.5 text-slate-400 hover:text-red-500 flex-shrink-0 font-bold text-xs"
+                    title="첨부 제거"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 하단 버튼 바 */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+          <span className="text-[11px] text-slate-400">
+            {attachedFiles.length > 0 ? `📎 ${attachedFiles.length}개 첨부` : ""}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={isSending}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+            >
+              {isSending ? (
+                <>
+                  <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  전송 중...
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                  메일 보내기
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </form>
     </div>

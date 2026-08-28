@@ -41,6 +41,10 @@ export default function MailDetailView({
   // 삭제 진행 상태
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // 첨부파일 다운로드 진행 상태 (인덱스별)
+  const [downloadingIdx, setDownloadingIdx] = useState<number | null>(null);
+
+
   // HTML 본문 안전 살균 처리
   const sanitizedHtml = useMemo(() => {
     if (mail.html) {
@@ -72,6 +76,51 @@ export default function MailDetailView({
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // 첨부파일 로컬 다운로드 핸들러
+  const handleDownloadAttachment = async (attachmentIndex: number, filename: string) => {
+    setDownloadingIdx(attachmentIndex);
+    try {
+      const payload: any = {
+        uid: mail.uid,
+        attachmentIndex,
+        mailbox,
+      };
+
+      if (accountId) {
+        payload.accountId = accountId;
+      } else if (directAuth) {
+        payload.provider = directAuth.provider;
+        payload.email = directAuth.email;
+        payload.password = directAuth.password;
+      }
+
+      const res = await fetch("/api/mail/attachment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename || `attachment_${attachmentIndex}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json();
+        alert(data.error || "첨부파일 다운로드에 실패했습니다.");
+      }
+    } catch {
+      alert("서버 통신 중 오류가 발생했습니다.");
+    } finally {
+      setDownloadingIdx(null);
+    }
   };
 
   // 단일 메일 삭제 핸들러
@@ -403,9 +452,9 @@ export default function MailDetailView({
               {mail.attachments.map((att, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between px-2.5 py-1.5 bg-white rounded-lg border border-slate-200 text-xs"
+                  className="flex items-center justify-between px-2.5 py-1.5 bg-white rounded-lg border border-slate-200 text-xs hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
                 >
-                  <div className="flex items-center gap-2 truncate">
+                  <div className="flex items-center gap-2 truncate min-w-0">
                     <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -414,11 +463,37 @@ export default function MailDetailView({
                         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                       />
                     </svg>
-                    <span className="truncate text-slate-700">{att.filename}</span>
+                    <span className="truncate text-slate-700">{att.filename || `첨부파일 ${idx + 1}`}</span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap flex-shrink-0">
+                      {formatFileSize(att.size)}
+                    </span>
                   </div>
-                  <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">
-                    {formatFileSize(att.size)}
-                  </span>
+
+                  {/* 다운로드 버튼 */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadAttachment(idx, att.filename || `attachment_${idx + 1}`)}
+                    disabled={downloadingIdx === idx}
+                    className="flex items-center gap-1 ml-2 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-all flex-shrink-0 disabled:opacity-60"
+                    title={`${att.filename} 다운로드`}
+                  >
+                    {downloadingIdx === idx ? (
+                      <>
+                        <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <span>다운로드 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span>다운로드</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               ))}
             </div>

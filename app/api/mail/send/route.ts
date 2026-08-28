@@ -3,7 +3,7 @@ import { getIronSession } from "iron-session";
 import { sessionOptions, SessionData } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { decryptPassword } from "@/lib/crypto";
-import { sendMail, DEFAULT_SMTP_PROVIDERS, SmtpConfig } from "@/lib/smtp";
+import { sendMail, DEFAULT_SMTP_PROVIDERS, SmtpConfig, MailAttachment } from "@/lib/smtp";
 
 export async function POST(request: NextRequest) {
   const response = new NextResponse();
@@ -14,20 +14,68 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json();
-    const {
-      accountId,
-      provider,
-      email,
-      password,
-      smtpHost,
-      smtpPort,
-      to,
-      cc,
-      subject,
-      text,
-      html,
-    } = body;
+    const contentType = request.headers.get("content-type") || "";
+
+    let accountId: string | undefined;
+    let provider: string | undefined;
+    let email: string | undefined;
+    let password: string | undefined;
+    let smtpHost: string | undefined;
+    let smtpPort: number | undefined;
+    let to: string = "";
+    let cc: string | undefined;
+    let subject: string = "";
+    let text: string | undefined;
+    let html: string | undefined;
+    let attachments: MailAttachment[] = [];
+
+    if (contentType.includes("multipart/form-data")) {
+      // 파일 첨부 포함 form-data 파싱
+      const formData = await request.formData();
+
+      accountId = formData.get("accountId") as string | undefined ?? undefined;
+      provider = formData.get("provider") as string | undefined ?? undefined;
+      email = formData.get("email") as string | undefined ?? undefined;
+      password = formData.get("password") as string | undefined ?? undefined;
+      smtpHost = formData.get("smtpHost") as string | undefined ?? undefined;
+      const portRaw = formData.get("smtpPort");
+      smtpPort = portRaw ? Number(portRaw) : undefined;
+
+      to = (formData.get("to") as string) || "";
+      cc = (formData.get("cc") as string) || undefined;
+      subject = (formData.get("subject") as string) || "";
+      text = (formData.get("text") as string) || undefined;
+      html = (formData.get("html") as string) || undefined;
+
+      // 첨부 파일 배열 처리
+      const files = formData.getAll("attachments") as File[];
+      for (const file of files) {
+        if (file && file.size > 0) {
+          const buffer = Buffer.from(await file.arrayBuffer());
+          attachments.push({
+            filename: file.name,
+            content: buffer,
+            contentType: file.type || "application/octet-stream",
+          });
+        }
+      }
+    } else {
+      // 기존 JSON 방식 (첨부파일 없는 경우)
+      const body = await request.json();
+      ({
+        accountId,
+        provider,
+        email,
+        password,
+        smtpHost,
+        smtpPort,
+        to,
+        cc,
+        subject,
+        text,
+        html,
+      } = body);
+    }
 
     if (!to || !subject || (!text && !html)) {
       return NextResponse.json(
@@ -56,7 +104,7 @@ export async function POST(request: NextRequest) {
       const defaultSmtp = DEFAULT_SMTP_PROVIDERS[account.provider];
       smtpConfig = {
         host: smtpHost || defaultSmtp?.host || "smtp.gmail.com",
-        port: smtpPort ? Number(smtpPort) : defaultSmtp?.port || 465,
+        port: smtpPort ?? (defaultSmtp?.port || 465),
         secure: true,
         auth: {
           user: account.email,
@@ -68,7 +116,7 @@ export async function POST(request: NextRequest) {
       const defaultSmtp = provider ? DEFAULT_SMTP_PROVIDERS[provider] : undefined;
       smtpConfig = {
         host: smtpHost || defaultSmtp?.host || "smtp.gmail.com",
-        port: smtpPort ? Number(smtpPort) : defaultSmtp?.port || 465,
+        port: smtpPort ?? (defaultSmtp?.port || 465),
         secure: true,
         auth: {
           user: email,
@@ -101,6 +149,7 @@ export async function POST(request: NextRequest) {
       subject,
       text,
       html,
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
 
     return NextResponse.json({
